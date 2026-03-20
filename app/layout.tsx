@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { VaultProvider } from "@/context/VaultContext";
+import ClientShell from "@/components/ClientShell";
 
 export const metadata: Metadata = {
   title: "Account Manager Hub",
@@ -11,7 +11,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <VaultProvider>{children}</VaultProvider>
+        <ClientShell>
+          {children}
+        </ClientShell>
       </body>
     </html>
   );

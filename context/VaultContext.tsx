@@ -18,6 +18,7 @@ import {
 
 interface VaultContextValue {
   vault: VaultData;
+  hydrated: boolean;
   setVaultField: (key: VaultKey, value: string) => void;
   clearAll: () => void;
   hasFile: (key: VaultKey) => boolean;
@@ -33,9 +34,12 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     refreshed: "",
     order: "",
   });
+  const [hydrated, setHydrated] = useState(false);
 
+  // Load from localStorage on first render
   useEffect(() => {
     setVault(loadVault());
+    setHydrated(true);
   }, []);
 
   const setVaultField = useCallback((key: VaultKey, value: string) => {
@@ -57,16 +61,13 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     (key: VaultKey) =>
       vault[key].trim() === ""
         ? 0
-        : vault[key]
-            .trim()
-            .split("\n")
-            .filter((l) => l.trim()).length,
+        : vault[key].trim().split("\n").filter((l) => l.trim()).length,
     [vault]
   );
 
   return (
     <VaultContext.Provider
-      value={{ vault, setVaultField, clearAll, hasFile, lineCount }}
+      value={{ vault, hydrated, setVaultField, clearAll, hasFile, lineCount }}
     >
       {children}
     </VaultContext.Provider>
@@ -75,6 +76,6 @@ export function VaultProvider({ children }: { children: ReactNode }) {
 
 export function useVault() {
   const ctx = useContext(VaultContext);
-  if (!ctx) throw new Error("useVault must be used inside VaultProvider");
+  if (!ctx) throw new Error("useVault must be used inside <VaultProvider>");
   return ctx;
 }
