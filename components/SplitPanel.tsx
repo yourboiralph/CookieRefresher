@@ -7,6 +7,7 @@ import {
   LogPanel, StatChip, Toggle,
   type LogEntry,
 } from "./ui";
+import { useVault } from "../context/VaultContext";
 import { splitAccounts } from "../lib/parser";
 
 // ── Range Output Block ────────────────────────────────────────────────────
@@ -41,15 +42,8 @@ function RangeOutputBlock({
     setTimeout(() => setCopyFeedback(null), 1200);
   };
 
-  const copyAll = () => {
-    navigator.clipboard.writeText(value);
-    triggerFeedback("all");
-  };
-
-  const copyRange = () => {
-    navigator.clipboard.writeText(selectedLines.join("\n"));
-    triggerFeedback("range");
-  };
+  const copyAll = () => { navigator.clipboard.writeText(value); triggerFeedback("all"); };
+  const copyRange = () => { navigator.clipboard.writeText(selectedLines.join("\n")); triggerFeedback("range"); };
 
   const download = () => {
     const blob = new Blob([value], { type: "text/plain" });
@@ -71,10 +65,8 @@ function RangeOutputBlock({
     <Card>
       <CardHeader icon={icon} label={label} />
       <CardBody>
-        {/* Output textarea */}
         <Textarea value={value} readOnly rows={12} />
 
-        {/* Total + active selection info */}
         <div className="flex items-center justify-between mt-2 mb-3">
           <span className="text-[10px] text-dim font-mono">
             {total} line{total !== 1 ? "s" : ""} total
@@ -86,11 +78,8 @@ function RangeOutputBlock({
           )}
         </div>
 
-        {/* Range selector */}
         <div className="bg-surface2 border border-border rounded-xl p-3 mb-3">
-          <p className="text-[10px] text-dim tracking-widest uppercase mb-3">
-            Select line range
-          </p>
+          <p className="text-[10px] text-dim tracking-widest uppercase mb-3">Select line range</p>
           <div className="flex items-center gap-3">
             <div className="flex flex-col gap-1 flex-1">
               <label className="text-[10px] text-dim">From</label>
@@ -125,7 +114,6 @@ function RangeOutputBlock({
             </button>
           </div>
 
-          {/* Preview of selected lines */}
           {!isFullRange && selectedCount > 0 && (
             <div className="mt-3 bg-surface rounded-lg p-2 border border-border max-h-[80px] overflow-y-auto">
               {selectedLines.slice(0, 3).map((line, i) => (
@@ -143,7 +131,6 @@ function RangeOutputBlock({
           )}
         </div>
 
-        {/* Action buttons */}
         <div className="flex flex-wrap gap-2">
           <button
             onClick={copyAll}
@@ -187,9 +174,18 @@ function RangeOutputBlock({
 // ── Split Panel ───────────────────────────────────────────────────────────
 
 export default function SplitPanel() {
-  const [accounts, setAccounts] = useState("");
-  const [orderText, setOrderText] = useState("");
-  const [useOrder, setUseOrder] = useState(true);
+  // ✅ Pull directly from vault
+  const { vault } = useVault();
+
+  // Local overrides — take priority over vault when set
+  const [localAccounts, setLocalAccounts] = useState("");
+  const [localOrder, setLocalOrder] = useState("");
+
+  // Effective values — local override wins, then vault, then empty
+  const accounts = localAccounts || vault.accounts || "";
+  const orderText = localOrder || vault.order || "";
+
+  const [useOrder, setUseOrder] = useState(true); // ✅ default ON
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [result, setResult] = useState<{
     userpass: string;
@@ -202,24 +198,54 @@ export default function SplitPanel() {
 
   const run = () => {
     if (!accounts.trim()) {
-      setLogs([{ msg: "No accounts provided.", type: "error" }]);
+      setLogs([{
+        msg: "No accounts found. Upload account.txt in the Vault above, or use the override below.",
+        type: "error",
+      }]);
       return;
     }
     setLogs([]);
 
     const res = splitAccounts(accounts, useOrder ? orderText : undefined);
     res.warnings.forEach((w) => addLog(w, "warn"));
-    addLog(`Split complete — ${res.count} account(s) processed.`, "success");
+
+    const source = localAccounts ? "local override" : "vault";
+    addLog(`Split complete — ${res.count} account(s) from ${source}.`, "success");
 
     setResult({ userpass: res.userpassLines, cookies: res.cookieLines, count: res.count });
   };
 
   const clear = () => {
-    setAccounts("");
-    setOrderText("");
+    setLocalAccounts("");
+    setLocalOrder("");
     setLogs([]);
     setResult(null);
   };
+
+  // Source status labels
+  const accountSource = localAccounts
+    ? "⚠ Using local override"
+    : vault.accounts
+    ? "✓ Using vault — account.txt"
+    : "✗ No accounts loaded — upload in the Vault above";
+
+  const accountSourceColor = localAccounts
+    ? "text-yellow-400"
+    : vault.accounts
+    ? "text-accent3"
+    : "text-red-400";
+
+  const orderSource = localOrder
+    ? "⚠ Using local order override"
+    : vault.order
+    ? "✓ Using vault — original_order.txt"
+    : "No order file — will use input order as-is";
+
+  const orderSourceColor = localOrder
+    ? "text-yellow-400"
+    : vault.order
+    ? "text-accent3"
+    : "text-dim";
 
   return (
     <div className="space-y-4 animate-fade-up">
@@ -228,25 +254,66 @@ export default function SplitPanel() {
         <CardBody>
           <Toggle enabled={useOrder} onChange={setUseOrder} label="Preserve original order" />
 
-          <FieldLabel label="Accounts" hint="username:password:_|WARNING...|_cookie" />
-          <UploadZone label="Upload account.txt" onLoad={setAccounts} />
-          <Textarea
-            value={accounts}
-            onChange={setAccounts}
-            placeholder={"Paste accounts here...\nusername:password:_|WARNING...|_CAEaAh..."}
-            rows={10}
-          />
+          {/* Account source status */}
+          <div className={`text-[11px] font-mono mb-3 ${accountSourceColor}`}>
+            {accountSource}
+          </div>
 
+          <FieldLabel label="Accounts" hint="username:password:_|WARNING...|_cookie" />
+
+          {/* Override expander */}
+          <details className="mb-2">
+            <summary className="text-[10px] text-dim cursor-pointer hover:text-[#e8e8f0] transition-colors select-none list-none mb-2">
+              ↳ Override vault with a different file for this run
+            </summary>
+            <div className="mt-2 space-y-2">
+              <UploadZone label="Upload account.txt override" onLoad={setLocalAccounts} />
+              <Textarea
+                value={localAccounts}
+                onChange={setLocalAccounts}
+                placeholder={"Paste accounts to override vault...\nusername:password:_|WARNING...|_CAEaAh..."}
+                rows={6}
+              />
+              {localAccounts && (
+                <button
+                  onClick={() => setLocalAccounts("")}
+                  className="text-[10px] text-dim hover:text-red-400 font-mono transition-colors cursor-pointer"
+                >
+                  ✕ Remove override — revert to vault
+                </button>
+              )}
+            </div>
+          </details>
+
+          {/* Order reference section */}
           {useOrder && (
             <div className="mt-4 border-t border-border pt-4">
+              <div className={`text-[11px] font-mono mb-3 ${orderSourceColor}`}>
+                {orderSource}
+              </div>
               <FieldLabel label="Original order reference" hint="optional — for sort order" />
-              <UploadZone label="Upload original_order.txt" onLoad={setOrderText} />
-              <Textarea
-                value={orderText}
-                onChange={setOrderText}
-                placeholder="Paste original account list here..."
-                rows={5}
-              />
+              <details className="mb-2">
+                <summary className="text-[10px] text-dim cursor-pointer hover:text-[#e8e8f0] transition-colors select-none list-none">
+                  ↳ Override vault order file for this run
+                </summary>
+                <div className="mt-2 space-y-2">
+                  <UploadZone label="Upload original_order.txt override" onLoad={setLocalOrder} />
+                  <Textarea
+                    value={localOrder}
+                    onChange={setLocalOrder}
+                    placeholder="Paste order list to override vault..."
+                    rows={4}
+                  />
+                  {localOrder && (
+                    <button
+                      onClick={() => setLocalOrder("")}
+                      className="text-[10px] text-dim hover:text-red-400 font-mono transition-colors cursor-pointer"
+                    >
+                      ✕ Remove override — revert to vault
+                    </button>
+                  )}
+                </div>
+              </details>
             </div>
           )}
         </CardBody>
