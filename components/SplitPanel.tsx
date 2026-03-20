@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Card, CardHeader, CardBody,
   Button, Textarea, UploadZone, FieldLabel,
@@ -8,7 +8,139 @@ import {
   type LogEntry,
 } from "./ui";
 import { useVault } from "../context/VaultContext";
-import { splitAccounts } from "../lib/parser";
+import { splitAccounts, parseAccounts } from "../lib/parser";
+
+// ── Account Search ────────────────────────────────────────────────────────
+
+function AccountSearch({ accountsText }: { accountsText: string }) {
+  const [query, setQuery] = useState("");
+  const [copyFeedback, setCopyFeedback] = useState<Record<string, boolean>>({});
+
+  // Parse accounts into a searchable map
+  const { accounts } = useMemo(() => parseAccounts(accountsText), [accountsText]);
+
+  // Filter by username (case-insensitive, partial match)
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return Object.values(accounts).filter((a) =>
+      a.username.toLowerCase().includes(q)
+    );
+  }, [query, accounts]);
+
+  const copy = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopyFeedback((p) => ({ ...p, [key]: true }));
+    setTimeout(() => setCopyFeedback((p) => ({ ...p, [key]: false })), 1200);
+  };
+
+  const noResults = query.trim().length > 0 && results.length === 0;
+
+  return (
+    <Card>
+      <CardHeader icon="🔎" label="Account Search" />
+      <CardBody>
+        {/* Search input */}
+        <div className="relative mb-4">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim text-sm select-none">
+            🔍
+          </span>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by username — e.g. johndoe123"
+            className="w-full bg-surface2 border border-border rounded-xl pl-9 pr-4 py-2.5 text-[12px] font-mono text-[#e8e8f0] placeholder-dim/50 focus:border-accent focus:outline-none transition-colors"
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-[#e8e8f0] text-xs transition-colors cursor-pointer"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        {/* Empty state */}
+        {!query.trim() && (
+          <p className="text-[11px] text-dim/50 font-mono text-center py-4">
+            Type a username to search loaded accounts
+          </p>
+        )}
+
+        {/* No results */}
+        {noResults && (
+          <p className="text-[11px] text-red-400 font-mono text-center py-4">
+            No account found matching &quot;{query}&quot;
+          </p>
+        )}
+
+        {/* Results */}
+        {results.length > 0 && (
+          <div className="space-y-3">
+            {/* Result count */}
+            <p className="text-[10px] text-dim font-mono">
+              {results.length} result{results.length !== 1 ? "s" : ""} for &quot;{query}&quot;
+            </p>
+
+            {results.map((account) => (
+              <div
+                key={account.username}
+                className="bg-surface2 border border-border rounded-xl overflow-hidden"
+              >
+                {/* Username header */}
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
+                  <span className="font-mono text-[13px] font-semibold text-[#e8e8f0]">
+                    {account.username}
+                  </span>
+                  <button
+                    onClick={() => copy(account.full, `full_${account.username}`)}
+                    className="text-[10px] text-dim hover:text-accent font-mono transition-colors cursor-pointer"
+                  >
+                    {copyFeedback[`full_${account.username}`] ? "✓ Copied full line!" : "⎘ Copy full line"}
+                  </button>
+                </div>
+
+                {/* user:pass row */}
+                <div className="px-4 py-2.5 border-b border-border/50 flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[9px] text-dim tracking-widest uppercase mb-1">User:Pass</p>
+                    <p className="text-[11px] font-mono text-[#e8e8f0] break-all">
+                      {account.userpass}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => copy(account.userpass, `up_${account.username}`)}
+                    className="shrink-0 text-[10px] text-dim hover:text-accent font-mono transition-colors cursor-pointer pt-4"
+                  >
+                    {copyFeedback[`up_${account.username}`] ? "✓" : "⎘"}
+                  </button>
+                </div>
+
+                {/* Cookie row */}
+                <div className="px-4 py-2.5 flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[9px] text-dim tracking-widest uppercase mb-1">Cookie</p>
+                    <p className="text-[11px] font-mono text-accent3 break-all line-clamp-2">
+                      {account.cookie}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => copy(account.cookie, `ck_${account.username}`)}
+                    className="shrink-0 text-[10px] text-dim hover:text-accent font-mono transition-colors cursor-pointer pt-4"
+                  >
+                    {copyFeedback[`ck_${account.username}`] ? "✓" : "⎘"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
 
 // ── Range Output Block ────────────────────────────────────────────────────
 
@@ -138,7 +270,6 @@ function RangeOutputBlock({
           >
             {copyFeedback === "all" ? "✓ Copied!" : "⎘ Copy All"}
           </button>
-
           {!isFullRange && (
             <button
               onClick={copyRange}
@@ -149,14 +280,12 @@ function RangeOutputBlock({
                 : `⎘ Copy Lines ${clampedFrom}–${clampedTo} (${selectedCount})`}
             </button>
           )}
-
           <button
             onClick={download}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[rgba(74,222,128,0.12)] border border-[rgba(74,222,128,0.3)] text-[11px] font-mono text-[#4ade80] hover:bg-[rgba(74,222,128,0.2)] transition-all cursor-pointer"
           >
             ⬇ Download All
           </button>
-
           {!isFullRange && (
             <button
               onClick={downloadRange}
@@ -174,18 +303,15 @@ function RangeOutputBlock({
 // ── Split Panel ───────────────────────────────────────────────────────────
 
 export default function SplitPanel() {
-  // ✅ Pull directly from vault
   const { vault } = useVault();
 
-  // Local overrides — take priority over vault when set
   const [localAccounts, setLocalAccounts] = useState("");
   const [localOrder, setLocalOrder] = useState("");
 
-  // Effective values — local override wins, then vault, then empty
   const accounts = localAccounts || vault.accounts || "";
   const orderText = localOrder || vault.order || "";
 
-  const [useOrder, setUseOrder] = useState(true); // ✅ default ON
+  const [useOrder, setUseOrder] = useState(true);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [result, setResult] = useState<{
     userpass: string;
@@ -205,13 +331,10 @@ export default function SplitPanel() {
       return;
     }
     setLogs([]);
-
     const res = splitAccounts(accounts, useOrder ? orderText : undefined);
     res.warnings.forEach((w) => addLog(w, "warn"));
-
     const source = localAccounts ? "local override" : "vault";
     addLog(`Split complete — ${res.count} account(s) from ${source}.`, "success");
-
     setResult({ userpass: res.userpassLines, cookies: res.cookieLines, count: res.count });
   };
 
@@ -222,7 +345,6 @@ export default function SplitPanel() {
     setResult(null);
   };
 
-  // Source status labels
   const accountSource = localAccounts
     ? "⚠ Using local override"
     : vault.accounts
@@ -249,19 +371,22 @@ export default function SplitPanel() {
 
   return (
     <div className="space-y-4 animate-fade-up">
+
+      {/* Search — always visible if accounts are loaded */}
+      {accounts.trim() && (
+        <AccountSearch accountsText={accounts} />
+      )}
+
       <Card>
         <CardHeader icon="📋" label="Input — account.txt format" />
         <CardBody>
           <Toggle enabled={useOrder} onChange={setUseOrder} label="Preserve original order" />
 
-          {/* Account source status */}
           <div className={`text-[11px] font-mono mb-3 ${accountSourceColor}`}>
             {accountSource}
           </div>
 
           <FieldLabel label="Accounts" hint="username:password:_|WARNING...|_cookie" />
-
-          {/* Override expander */}
           <details className="mb-2">
             <summary className="text-[10px] text-dim cursor-pointer hover:text-[#e8e8f0] transition-colors select-none list-none mb-2">
               ↳ Override vault with a different file for this run
@@ -285,7 +410,6 @@ export default function SplitPanel() {
             </div>
           </details>
 
-          {/* Order reference section */}
           {useOrder && (
             <div className="mt-4 border-t border-border pt-4">
               <div className={`text-[11px] font-mono mb-3 ${orderSourceColor}`}>
