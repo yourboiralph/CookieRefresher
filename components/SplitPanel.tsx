@@ -189,7 +189,7 @@ function RangeOutputBlock({
 export default function SplitPanel() {
   const [accounts, setAccounts] = useState("");
   const [orderText, setOrderText] = useState("");
-  const [useOrder, setUseOrder] = useState(false);
+  const [useOrder, setUseOrder] = useState(true);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [result, setResult] = useState<{
     userpass: string;
